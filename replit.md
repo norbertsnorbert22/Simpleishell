@@ -1,70 +1,69 @@
-# .NET Dev Environment
+# smpsh — Simpleishell
 
-A clean .NET 9 development environment with git and neovim configured for C# coding.
+A Unix-style shell written in C# with a custom natural-language-flavoured syntax.
 
 ## Run & Operate
 
-- `dotnet run --project src/App` — run the console app
-- `dotnet build App.sln` — build the solution
-- `dotnet test` — run tests (add test projects to the solution as needed)
-- `dotnet add package <name>` — add a NuGet package to a project
-- `nvim` — open neovim (plugins auto-install on first launch via lazy.nvim)
+- `dotnet run --project src/App` — launch the shell
+- `dotnet build App.sln` — build
+- `dotnet test` — run tests (add test projects as needed)
 
 ## Stack
 
 - .NET 9.0 (SDK 9.0.308)
 - C# — primary language
-- OmniSharp — C# LSP (bundled with the .NET module)
-- Neovim 0.11 — editor, configured at `~/.config/nvim/init.lua`
-- Git 2.49
+- Spectre.Console 0.55.2 — coloured prompt + markup
+- Neovim 0.11 with lazy.nvim, OmniSharp LSP, Telescope, Treesitter, chocolatier theme
 
 ## Where things live
 
 - `App.sln` — solution file (root)
-- `src/App/` — main console project (`Program.cs`, `App.csproj`)
-- `~/.config/nvim/init.lua` — neovim config (lazy.nvim, LSP, Treesitter, Telescope)
-- `.editorconfig` — shared formatting rules
+- `src/App/Program.cs` — REPL loop + coloured prompt
+- `src/App/Lexer.cs` — tokeniser: parses `, also,` / `>>` / `!args`
+- `src/App/Executor.cs` — command dispatcher + builtins
+- `src/App/App.csproj` — project + NuGet refs
+- `~/.config/nvim/init.lua` → `/home/runner/workspace/.config/nvim/init.lua` — neovim entry point
+
+## smpsh syntax
+
+| Operator | Meaning |
+|----------|---------|
+| `>>`     | Pipe output to next command |
+| `, also,`| AND — run next only if previous succeeded |
+| `;`      | Sequential — always run next |
+
+**Argument format:**
+- `!flag` / `!abc` — single or stacked flags
+- `!key=value` — named variable
+- `!name(a, b)` — list
+
+## Commands
+
+`hi`, `say`, `list`, `copy`, `cd`, `pwd`, `help`, `exit`
+
+See spec: `attached_assets/Pasted--Simpleishell-…`
 
 ## Architecture decisions
 
-- Solution at repo root; source projects under `src/` for a clean layout.
-- OmniSharp LSP wired into neovim via `nvim-lspconfig` — autocomplete, go-to-def, rename, and code actions all work out of the box.
-- lazy.nvim bootstraps itself on first `nvim` launch — no manual plugin install step needed.
-- `.editorconfig` enforces consistent formatting across editors and CI.
+- Three files: `Lexer.cs` owns all parsing, `Executor.cs` owns all command logic, `Program.cs` is only the REPL.
+- Lexer produces a `List<Statement>` where each `Statement` holds a pipe-chain (`List<Cmd>`) and a join operator (`Also | Seq | End`).
+- Pipeline output is buffered in a `StringBuilder` and threaded from one command's stdout to the next's stdin.
+- Neovim stdpath quirk on Replit: `stdpath('config')` = `/home/runner/workspace/.config/nvim` — NOT `~/.config/nvim`.
 
-## Product
+## User preferences
 
-A ready-to-code .NET 9 C# workspace with:
-- Full LSP support (autocomplete, diagnostics, go-to-definition, rename, code actions)
-- Fuzzy file/grep search via Telescope (`<Space>ff`, `<Space>fg`)
-- File tree via Neo-tree (`<Space>e`)
-- Git change indicators in the gutter (gitsigns)
-- Syntax highlighting via Treesitter (C#, JSON, XML, TOML, Bash, Markdown)
-
-## Neovim key bindings
-
-| Key | Action |
-|---|---|
-| `<Space>ff` | Find files (Telescope) |
-| `<Space>fg` | Live grep (Telescope) |
-| `<Space>fb` | Buffers (Telescope) |
-| `<Space>e` | Toggle file tree (Neo-tree) |
-| `gd` | Go to definition |
-| `gr` | Go to references |
-| `K` | Hover docs |
-| `<Space>rn` | Rename symbol |
-| `<Space>ca` | Code actions |
-| `<Space>f` | Format file |
-| `[d` / `]d` | Previous / next diagnostic |
+- 2–5 source files — not 1 monolith, not 20 micro-files.
+- Keep things concise; no over-engineering.
+- Chocolatier colorscheme in neovim.
 
 ## Gotchas
 
-- Neovim plugins install automatically on the first `nvim` launch — this takes ~30 seconds with an internet connection. Wait for the install to finish before opening `.cs` files.
-- OmniSharp needs a `.sln` or `.csproj` in the project root to activate. The solution file `App.sln` satisfies this.
-- Run `dotnet build` at least once before opening files in neovim so OmniSharp can index the project correctly.
+- Spectre.Console does NOT support `chocolate1` as a color name — use `orange1` or other standard names.
+- Neovim plugins auto-install on first launch (~30 s). Run `dotnet build` before opening `.cs` files so OmniSharp indexes correctly.
+- `dotnet run` from any directory works because the `--project` flag is explicit.
 
 ## Pointers
 
+- [smpsh spec](attached_assets/Pasted--Simpleishell-…txt)
 - [.NET 9 docs](https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9/overview)
-- [OmniSharp neovim setup](https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#omnisharp)
-- [lazy.nvim docs](https://lazy.folke.io/)
+- [Spectre.Console markup](https://spectreconsole.net/markup)

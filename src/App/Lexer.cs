@@ -1,101 +1,188 @@
-/// <summary>A single command with its arguments and optional I/O redirects.</summary>
-record Cmd(List<string> Args, string? Stdin = null, string? Stdout = null, bool Append = false);
+// ── smpsh argument types ──────────────────────────────────────────────────────
+
+enum ArgKind { Text, Flag, Var, List }
 
 /// <summary>
-/// Tokenises a shell line into a list of piped <see cref="Cmd"/>s.
-/// Handles: single/double quotes, backslash escapes, $VAR / ${VAR}, pipes,
-/// input/output redirects (< > >>).
+/// A parsed argument.<br/>
+/// Text  → plain word or quoted string<br/>
+/// Flag  → !rf  (Flags = ['r','f'])<br/>
+/// Var   → !key=value<br/>
+/// List  → !name(a, b, c)
 /// </summary>
+record Arg(ArgKind Kind, string Raw, char[] Flags = null!, string Key = "", string Val = "", string[] Items = null!)
+{
+    public bool HasFlag(char f) => Kind == ArgKind.Flag && Array.IndexOf(Flags, f) >= 0;
+    public bool HasFlag(string s) => Kind == ArgKind.Flag && s.All(f => Array.IndexOf(Flags, f) >= 0);
+}
+
+record Cmd(string Name, List<Arg> Args)
+{
+    public bool Flag(char f)        => Args.Any(a => a.HasFlag(f));
+    public string? Var(string key)  => Args.FirstOrDefault(a => a.Kind == ArgKind.Var && string.Equals(a.Key, key, StringComparison.OrdinalIgnoreCase))?.Val;
+    public string[]? List(string k) => Args.FirstOrDefault(a => a.Kind == ArgKind.List && string.Equals(a.Key, k, StringComparison.OrdinalIgnoreCase))?.Items;
+    public string[] Texts           => Args.Where(a => a.Kind == ArgKind.Text).Select(a => a.Val).ToArray();
+}
+
+enum Join { End, Seq, Also }   // ;  ,also,
+
+record Statement(List<Cmd> Pipe, Join Next);
+
+// ── Lexer ─────────────────────────────────────────────────────────────────────
+
 static class Lexer
 {
-    public static List<Cmd> Parse(string input, string cwd)
+    /// <summary>Parse a full smpsh input line into a list of statements.</summary>
+    public static List<Statement> Parse(string input)
     {
-        var pipeline = new List<Cmd>();
-        var args     = new List<string>();
-        string? redirectIn = null, redirectOut = null;
-        bool append = false;
-        bool nextIsIn = false, nextIsOut = false;
+        // 1. Split on `, also,` and `;` while respecting quotes/parens
+        var (chunks, joins) = SplitStatements(input);
 
-        foreach (var tok in Tokenise(input))
+        var statements = new List<Statement>();
+        for (int i = 0; i < chunks.Count; i++)
         {
-            switch (tok)
-            {
-                case "|":
-                    if (args.Count > 0) pipeline.Add(new Cmd([.. args], redirectIn, redirectOut, append));
-                    args.Clear(); redirectIn = redirectOut = null; append = false;
-                    break;
-                case "<":  nextIsIn  = true; break;
-                case ">":  nextIsOut = true; append = false; break;
-                case ">>": nextIsOut = true; append = true;  break;
-                default:
-                    if      (nextIsIn)  { redirectIn  = Resolve(tok, cwd); nextIsIn  = false; }
-                    else if (nextIsOut) { redirectOut = Resolve(tok, cwd); nextIsOut = false; }
-                    else                  args.Add(tok);
-                    break;
-            }
+            var pipe = SplitPipe(chunks[i].Trim())
+                           .Select(ParseCmd)
+                           .Where(c => !string.IsNullOrEmpty(c.Name))
+                           .ToList();
+            statements.Add(new Statement(pipe, i < joins.Count ? joins[i] : Join.End));
         }
-
-        if (args.Count > 0) pipeline.Add(new Cmd([.. args], redirectIn, redirectOut, append));
-        return pipeline;
+        return statements;
     }
 
-    static string Resolve(string path, string cwd) =>
-        Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(cwd, path));
+    // ── Statement splitter ────────────────────────────────────────────────────
 
-    static IEnumerable<string> Tokenise(string input)
+    static (List<string> chunks, List<Join> joins) SplitStatements(string input)
     {
-        int i = 0;
-        while (i < input.Length)
-        {
-            if (char.IsWhiteSpace(input[i])) { i++; continue; }
+        var chunks = new List<string>();
+        var joins  = new List<Join>();
+        var buf    = new System.Text.StringBuilder();
+        int depth  = 0;
+        bool inQ   = false;
+        char qChar = ' ';
 
-            // Two-char operators
-            if (i + 1 < input.Length && input[i..(i+2)] is ">>" or "&&" or "||")
-                { yield return input[i..(i+2)]; i += 2; continue; }
-
-            // Single-char operators
-            if (input[i] is '|' or '<' or '>')
-                { yield return input[i].ToString(); i++; continue; }
-
-            yield return ReadWord(input, ref i);
-        }
-    }
-
-    static string ReadWord(string input, ref int i)
-    {
-        var sb = new System.Text.StringBuilder();
-        while (i < input.Length && !char.IsWhiteSpace(input[i]) && input[i] is not ('|' or '<' or '>'))
+        for (int i = 0; i < input.Length; i++)
         {
             char c = input[i];
-            if (c == '\'') { i++; while (i < input.Length && input[i] != '\'') sb.Append(input[i++]); if (i < input.Length) i++; }
-            else if (c == '"')  { i++; while (i < input.Length && input[i] != '"')  { sb.Append(Escape(input, ref i)); } if (i < input.Length) i++; }
-            else if (c == '\\') { i++; if (i < input.Length) sb.Append(input[i++]); }
-            else if (c == '$')  { sb.Append(ReadVar(input, ref i)); }
-            else                { sb.Append(c); i++; }
+
+            if (inQ) { buf.Append(c); if (c == qChar) inQ = false; continue; }
+            if (c is '"' or '\'') { inQ = true; qChar = c; buf.Append(c); continue; }
+            if (c == '(') { depth++; buf.Append(c); continue; }
+            if (c == ')') { depth--; buf.Append(c); continue; }
+            if (depth > 0) { buf.Append(c); continue; }
+
+            // `, also,`
+            if (i + 7 < input.Length && input[i..].StartsWith(", also,", StringComparison.OrdinalIgnoreCase))
+            {
+                chunks.Add(buf.ToString()); buf.Clear();
+                joins.Add(Join.Also);
+                i += 6; continue;
+            }
+
+            if (c == ';') { chunks.Add(buf.ToString()); buf.Clear(); joins.Add(Join.Seq); continue; }
+
+            buf.Append(c);
         }
-        return sb.ToString();
+
+        if (buf.Length > 0) chunks.Add(buf.ToString());
+        return (chunks, joins);
     }
 
-    static char Escape(string s, ref int i)
-    {
-        if (s[i] == '\\' && i + 1 < s.Length) { i++; return s[i] switch { 'n'=>'\n','t'=>'\t', var x=>x }; }
-        return s[i++];
-    }
+    // ── Pipe splitter  (`>>`) ─────────────────────────────────────────────────
 
-    static string ReadVar(string input, ref int i)
+    static List<string> SplitPipe(string input)
     {
-        i++; // skip $
-        if (i >= input.Length) return "$";
-        if (input[i] == '?') { i++; return Environment.GetEnvironmentVariable("?") ?? "0"; }
-        if (input[i] == '{')
+        var parts  = new List<string>();
+        var buf    = new System.Text.StringBuilder();
+        bool inQ   = false;
+        char qChar = ' ';
+        int depth  = 0;
+
+        for (int i = 0; i < input.Length; i++)
         {
-            i++;
-            int s = i; while (i < input.Length && input[i] != '}') i++;
-            var n = input[s..i]; if (i < input.Length) i++;
-            return Environment.GetEnvironmentVariable(n) ?? "";
+            char c = input[i];
+            if (inQ) { buf.Append(c); if (c == qChar) inQ = false; continue; }
+            if (c is '"' or '\'') { inQ = true; qChar = c; buf.Append(c); continue; }
+            if (c == '(') { depth++; buf.Append(c); continue; }
+            if (c == ')') { depth--; buf.Append(c); continue; }
+            if (depth == 0 && c == '>' && i + 1 < input.Length && input[i+1] == '>')
+            {
+                parts.Add(buf.ToString().Trim()); buf.Clear(); i++; continue;
+            }
+            buf.Append(c);
         }
-        int start = i;
-        while (i < input.Length && (char.IsLetterOrDigit(input[i]) || input[i] == '_')) i++;
-        return Environment.GetEnvironmentVariable(input[start..i]) ?? "";
+        if (buf.Length > 0) parts.Add(buf.ToString().Trim());
+        return parts;
     }
+
+    // ── Command parser ────────────────────────────────────────────────────────
+
+    static Cmd ParseCmd(string segment)
+    {
+        var tokens = Tokenise(segment);
+        if (tokens.Count == 0) return new Cmd("", []);
+        var name = tokens[0];
+        var args  = tokens[1..].Select(ParseArg).ToList();
+        return new Cmd(name, args);
+    }
+
+    static Arg ParseArg(string tok)
+    {
+        if (!tok.StartsWith('!'))
+            return new Arg(ArgKind.Text, tok, Val: Unescape(tok));
+
+        var body = tok[1..];
+
+        // !name(items)
+        var paren = body.IndexOf('(');
+        if (paren > 0 && body.EndsWith(')'))
+        {
+            var key   = body[..paren];
+            var inner = body[(paren+1)..^1];
+            var items = inner.Split(',').Select(s => s.Trim()).ToArray();
+            return new Arg(ArgKind.List, tok, Key: key, Items: items);
+        }
+
+        // !key=value
+        var eq = body.IndexOf('=');
+        if (eq > 0)
+            return new Arg(ArgKind.Var, tok, Key: body[..eq], Val: body[(eq+1)..]);
+
+        // !flags  (single or stacked)
+        return new Arg(ArgKind.Flag, tok, Flags: body.ToCharArray());
+    }
+
+    // ── Tokeniser (respects quotes + parens) ─────────────────────────────────
+
+    static List<string> Tokenise(string s)
+    {
+        var tokens = new List<string>();
+        var buf    = new System.Text.StringBuilder();
+        bool inQ   = false;
+        char qChar = ' ';
+        int depth  = 0;
+
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (inQ)
+            {
+                if (c == qChar) { inQ = false; } else buf.Append(c);
+                continue;
+            }
+            if (c is '"' or '\'') { inQ = true; qChar = c; continue; }
+            if (c == '(') { depth++; buf.Append(c); continue; }
+            if (c == ')') { depth--; buf.Append(c); continue; }
+            if (char.IsWhiteSpace(c) && depth == 0)
+            {
+                if (buf.Length > 0) { tokens.Add(buf.ToString()); buf.Clear(); }
+                continue;
+            }
+            buf.Append(c);
+        }
+        if (buf.Length > 0) tokens.Add(buf.ToString());
+        return tokens;
+    }
+
+    static string Unescape(string s) => s
+        .Replace("\\n", "\n").Replace("\\t", "\t").Replace("\\\\", "\\");
 }

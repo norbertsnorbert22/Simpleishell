@@ -1,33 +1,26 @@
 using Spectre.Console;
 
-// ── Shell state ───────────────────────────────────────────────────────────────
-var cwd      = Directory.GetCurrentDirectory();
 var history  = new List<string>();
 var lastCode = 0;
 
-AnsiConsole.MarkupLine("[bold chocolate1]mysh[/]  [dim].NET 9 — type [bold]help[/] to get started[/]\n");
+AnsiConsole.MarkupLine("[bold orange1]smpsh[/] [dim]— Simpleishell  •  type [bold]help[/] to get started[/]\n");
 
-// ── REPL ──────────────────────────────────────────────────────────────────────
 while (true)
 {
-    var home   = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    var dir    = cwd.StartsWith(home) ? "~" + cwd[home.Length..] : cwd;
-    var status = lastCode == 0 ? "[green]❯[/]" : $"[red]❯[/]";
+    var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    var dir  = Executor.Cwd.StartsWith(home) ? "~" + Executor.Cwd[home.Length..] : Executor.Cwd;
 
-    AnsiConsole.Markup($"[bold yellow]{dir}[/] {status} ");
+    AnsiConsole.Markup($"[bold cyan]{Environment.UserName}[/][dim]:[/] [bold blue]{Markup.Escape(dir)}[/][dim] %[/] ");
 
     var line = Console.ReadLine();
-    if (line is null) { AnsiConsole.WriteLine(); break; }   // Ctrl+D
+    if (line is null) { AnsiConsole.WriteLine(); break; }
     line = line.Trim();
     if (line == "") continue;
     history.Add(line);
 
-    List<Cmd> pipeline;
-    try   { pipeline = Lexer.Parse(line, cwd); }
-    catch (Exception ex) { Err(ex.Message); lastCode = 1; continue; }
+    List<Statement> stmts;
+    try   { stmts = Lexer.Parse(line); }
+    catch (Exception ex) { AnsiConsole.MarkupLine($"[red]parse error:[/] {Markup.Escape(ex.Message)}"); lastCode = 1; continue; }
 
-    lastCode = await Executor.RunAsync(pipeline, history, ref cwd);
+    lastCode = Executor.Run(stmts);
 }
-
-static void Err(string msg) =>
-    AnsiConsole.MarkupLine($"[red]error:[/] {Markup.Escape(msg)}");
