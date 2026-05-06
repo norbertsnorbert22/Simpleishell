@@ -1,0 +1,188 @@
+# Simpleishell
+# Simplesh (smpsh) Specification
+
+## Overview
+A user-friendly shell with natural language syntax and custom argument format.
+
+---
+
+## Syntax
+
+### Operators
+- `>>` : Pipe/redirect output to next command (like `|`)
+- `, also,` : AND operator - run next command if previous succeeds (like `&&`)
+- `;` : Sequential execution (like `;`)
+
+### Examples
+```
+copy foo.txt >> bar.txt, also, say !file(bar.txt)
+list !o=size >> grep txt, also, say Done!
+```
+
+### Argument Format
+
+#### Variables
+Format: `!key=value`
+```
+list !o=size
+copy !mode=recursive
+say  !file(myfile.txt)
+```
+
+#### Flags
+Format: `!a` or stacked `!abc`
+```
+list !r              % single flag
+list !rvf            % stacked: r, v, f
+copy !f source dest  % force flag
+```
+
+#### Lists
+Format: `!name(item1, item2, item3)`
+```
+say !file(path.txt)
+list !cols(name,size,date)
+copy !ignore(*.tmp, *.bak)
+```
+
+---
+
+## Commands
+
+### list
+List files and folders in cwd.
+
+**Syntax:** `list [directory]`
+
+**Options:**
+- `!o=alpha` : Sort alphabetically (default)
+- `!o=size` : Sort by file size
+- `!o=date` : Sort by modification date
+- `!r` : Reverse sort order
+- `!nfld` : Hide folders
+- `!nfil` : Hide files
+- `!f` : Show hidden files (force)
+
+**Examples:**
+```
+list
+list !o=size !r         # largest files first
+list . !nfld !o=alpha   # folders hidden, alphabetical
+list /home !f !r        # show hidden, reverse order
+```
+
+**Output Format:**
+```
+- Files
+  | - TYPE (SIZE)
+      filename
+- Folders
+  -- foldername
+```
+
+---
+
+### hi
+dont be afraid to say hi!
+
+**Output:**
+```
+Hello, username!
+```
+
+---
+
+### say
+Output text or file contents.
+
+**Syntax:** `say [text]` or `say !file(path)`
+
+**Options:**
+- `!File(path)` : Read and output file contents
+- `!Upper`,`!u` : Convert to uppercase
+- `!Lower`,`!l` : Convert to lowercase
+
+**Examples:**
+```
+say Hello world
+say !file(readme.md)
+say HELLO !lower
+```
+
+---
+
+### copy
+Copy files or directories.
+
+**Syntax:** `copy [source] [destination]`
+
+**Options:**
+- `!r` : Recursive copy (for directories)
+- `!f` : Force overwrite
+
+**Examples:**
+```
+copy file.txt backup.txt
+copy !r folder/ backup_folder/
+copy !f important.txt important.txt.bak
+```
+---
+
+## Implementation Phases
+
+### Phase 1: Argument Parser 
+- [ ] Parse `!key=val` variables
+- [ ] Parse `!flags` and stacked flags
+- [ ] Parse `!name(items)` lists
+
+### Phase 2: Commands 
+- [ ] list command with all options
+- [ ] hi command
+- [ ] say command with !file support
+- [ ] copy command with !r and !f flags
+
+### Phase 3: Shell Parser
+- [ ] Split by `, also,` (AND)
+- [ ] Split by `>>` (PIPE/REDIRECT)
+- [ ] Handle redirect targets
+- [ ] Parse command + args from each segment
+
+### Phase 4: Execution Engine
+- [ ] Execute single command
+- [ ] Execute piped commands (chain output)
+- [ ] Execute AND operators (conditional chaining)
+- [ ] Handle exit codes
+
+### Phase 5: Shell Loop
+- [ ] Prompt display
+- [ ] Input reading
+- [ ] Command execution
+- [ ] History (maybe)
+
+---
+
+## Edge Cases
+
+1. **Quoted arguments:** `say "hello world"` should be one argument
+2. **Nested parentheses:** `!file(path(to/file).txt)` - handle gracefully
+3. **Escaped characters:** `say "Hello\nWorld"` - support escape sequences
+4. **Empty pipes:** `list >> >> say done` - error handling
+5. **Missing arguments:** `copy source` - error message
+6. **Nonexistent files:** `say !file(missing.txt)` - error handling
+
+---
+
+## Prompt Format
+```
+<user: ~/current/path> %
+```
+Colored: username in cyan, path in blue
+
+---
+
+## Exit Codes
+- `0` : Success
+- `1` : General error
+- `127` : Command not found
+- Others: Command-specific errors
+- 
