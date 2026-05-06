@@ -1,45 +1,70 @@
-# [Project name]
+# .NET Dev Environment
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A clean .NET 9 development environment with git and neovim configured for C# coding.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `dotnet run --project src/App` — run the console app
+- `dotnet build App.sln` — build the solution
+- `dotnet test` — run tests (add test projects to the solution as needed)
+- `dotnet add package <name>` — add a NuGet package to a project
+- `nvim` — open neovim (plugins auto-install on first launch via lazy.nvim)
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- .NET 9.0 (SDK 9.0.308)
+- C# — primary language
+- OmniSharp — C# LSP (bundled with the .NET module)
+- Neovim 0.11 — editor, configured at `~/.config/nvim/init.lua`
+- Git 2.49
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `App.sln` — solution file (root)
+- `src/App/` — main console project (`Program.cs`, `App.csproj`)
+- `~/.config/nvim/init.lua` — neovim config (lazy.nvim, LSP, Treesitter, Telescope)
+- `.editorconfig` — shared formatting rules
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Solution at repo root; source projects under `src/` for a clean layout.
+- OmniSharp LSP wired into neovim via `nvim-lspconfig` — autocomplete, go-to-def, rename, and code actions all work out of the box.
+- lazy.nvim bootstraps itself on first `nvim` launch — no manual plugin install step needed.
+- `.editorconfig` enforces consistent formatting across editors and CI.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+A ready-to-code .NET 9 C# workspace with:
+- Full LSP support (autocomplete, diagnostics, go-to-definition, rename, code actions)
+- Fuzzy file/grep search via Telescope (`<Space>ff`, `<Space>fg`)
+- File tree via Neo-tree (`<Space>e`)
+- Git change indicators in the gutter (gitsigns)
+- Syntax highlighting via Treesitter (C#, JSON, XML, TOML, Bash, Markdown)
 
-## User preferences
+## Neovim key bindings
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+| Key | Action |
+|---|---|
+| `<Space>ff` | Find files (Telescope) |
+| `<Space>fg` | Live grep (Telescope) |
+| `<Space>fb` | Buffers (Telescope) |
+| `<Space>e` | Toggle file tree (Neo-tree) |
+| `gd` | Go to definition |
+| `gr` | Go to references |
+| `K` | Hover docs |
+| `<Space>rn` | Rename symbol |
+| `<Space>ca` | Code actions |
+| `<Space>f` | Format file |
+| `[d` / `]d` | Previous / next diagnostic |
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Neovim plugins install automatically on the first `nvim` launch — this takes ~30 seconds with an internet connection. Wait for the install to finish before opening `.cs` files.
+- OmniSharp needs a `.sln` or `.csproj` in the project root to activate. The solution file `App.sln` satisfies this.
+- Run `dotnet build` at least once before opening files in neovim so OmniSharp can index the project correctly.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- [.NET 9 docs](https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9/overview)
+- [OmniSharp neovim setup](https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#omnisharp)
+- [lazy.nvim docs](https://lazy.folke.io/)
