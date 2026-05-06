@@ -42,7 +42,7 @@ record Arg(ArgKind Kind, string Raw,
     public bool HasFlag(char f) => Kind == ArgKind.Flag && Array.IndexOf(Flags, f) >= 0;
 }
 
-record Cmd(string Name, List<Arg> Args)
+record Cmd(string Name, List<Arg> Args, bool IsTemplate = false, string Template = "")
 {
     public bool     Flag(char f)       => Args.Any(a => a.HasFlag(f));
     public string?  Var(string key)    => Args.FirstOrDefault(a => a.Kind == ArgKind.Var
@@ -71,7 +71,7 @@ static class Lexer
         {
             var pipe = SplitPipe(chunks[i].Trim())
                            .Select(ParseCmd)
-                           .Where(c => c.Name.Length > 0)
+                           .Where(c => c.Name.Length > 0 || c.IsTemplate)
                            .ToList();
             statements.Add(new Statement(pipe, i < joins.Count ? joins[i] : Join.End));
         }
@@ -138,6 +138,11 @@ static class Lexer
 
     static Cmd ParseCmd(string segment)
     {
+        // If {} appears anywhere in the raw segment, it's a format template.
+        // Don't tokenise — the whole segment is the template string.
+        if (segment.Contains("{}"))
+            return new Cmd("", [], IsTemplate: true, Template: segment);
+
         var tokens = Tokenise(segment);
         if (tokens.Count == 0) return new Cmd("", []);
         var name = tokens[0];

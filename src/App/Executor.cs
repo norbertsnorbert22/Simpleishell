@@ -62,6 +62,15 @@ static class Executor
             return (0, null);
         }
 
+        // ── Template stage:  say world! >> Hello, {}!  ───────────────────────
+        // {} anywhere in the raw segment → replace with piped value.
+        if (cmd.IsTemplate)
+        {
+            var piped  = stdin?.Display() ?? "";
+            Out(cmd.Template.Replace("{}", piped));
+            return (0, MakeOutput());
+        }
+
         // ── Object literal used as a command:  {k: v} >> say  ────────────────
         // The object itself becomes the output of this pipeline stage.
         if (cmd.Name.StartsWith('{') && cmd.Name.EndsWith('}'))
